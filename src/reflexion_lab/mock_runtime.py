@@ -14,6 +14,20 @@ from .utils import normalize_answer
 
 FIRST_ATTEMPT_WRONG = {"hp2": "London", "hp4": "Atlantic Ocean", "hp6": "Red Sea", "hp8": "Andes"}
 FAILURE_MODE_BY_QID = {"hp2": "incomplete_multi_hop", "hp4": "wrong_final_answer", "hp6": "entity_drift", "hp8": "entity_drift"}
+_CALL_METRICS: list[dict[str, int]] = []
+
+
+def reset_call_metrics() -> None:
+    _CALL_METRICS.clear()
+
+
+def consume_call_metrics() -> dict[str, int]:
+    metrics = {
+        "token_estimate": sum(item["token_estimate"] for item in _CALL_METRICS),
+        "latency_ms": sum(item["latency_ms"] for item in _CALL_METRICS),
+    }
+    _CALL_METRICS.clear()
+    return metrics
 
 
 def actor_answer(example: QAExample, attempt_id: int, agent_type: str, reflection_memory: list[str]) -> str:
@@ -141,6 +155,7 @@ def _parse_json_object(text: str) -> dict:
 
 def _chat(system_prompt: str, user_prompt: str) -> str:
     last_error: Exception | None = None
+    start = time.perf_counter()
     for attempt in range(1, 4):
         try:
             response = _client().chat.completions.create(
@@ -164,7 +179,25 @@ def _chat(system_prompt: str, user_prompt: str) -> str:
     content = response.choices[0].message.content
     if not content:
         raise ValueError("LLM returned an empty response.")
+    _CALL_METRICS.append(
+        {
+            "token_estimate": _extract_total_tokens(response),
+            "latency_ms": int((time.perf_counter() - start) * 1000),
+        }
+    )
     return content
+
+
+def _extract_total_tokens(response) -> int:
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return 0
+    total = getattr(usage, "total_tokens", None)
+    if total is not None:
+        return int(total)
+    prompt = getattr(usage, "prompt_tokens", 0) or 0
+    completion = getattr(usage, "completion_tokens", 0) or 0
+    return int(prompt + completion)
 
 
 @lru_cache(maxsize=1)

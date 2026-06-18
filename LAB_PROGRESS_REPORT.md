@@ -183,3 +183,158 @@ python run_benchmark.py --dataset data/hotpot_mini.json --out-dir outputs/progre
 ```
 
 Ket qua: terminal hien progress va `outputs/progress_smoke/report.md` co bang so sanh chi tiet theo tung cau.
+
+Da chay benchmark full 100 mau bang MiniMax-M3:
+
+```bash
+python run_benchmark.py --dataset data/hotpot_random_100.json --out-dir outputs/minimax_random_100 --reflexion-attempts 3
+python autograde.py --report-path outputs/minimax_random_100/report.json
+```
+
+Ket qua:
+
+```json
+{
+  "react": {
+    "count": 100,
+    "em": 0.93,
+    "avg_attempts": 1,
+    "avg_token_estimate": 385,
+    "avg_latency_ms": 200
+  },
+  "reflexion": {
+    "count": 100,
+    "em": 0.99,
+    "avg_attempts": 1.1,
+    "avg_token_estimate": 563.3,
+    "avg_latency_ms": 323.8
+  },
+  "delta_reflexion_minus_react": {
+    "em_abs": 0.06,
+    "attempts_abs": 0.1,
+    "tokens_abs": 178.3,
+    "latency_abs": 123.8
+  }
+}
+```
+
+Autograde:
+
+```text
+Auto-grade total: 92/100
+- Flow Score (Core): 72/80
+  * Schema: 30/30
+  * Experiment: 30/30
+  * Analysis: 12/20
+- Bonus Score: 20/20
+```
+
+Nhan xet:
+
+- Report co `meta.num_records = 200` vi 100 cau duoc chay qua ca ReAct va Reflexion.
+- ReAct dung 93/100 cau; Reflexion dung 99/100 cau.
+- Reflexion tang EM them 0.06, tu 0.93 len 0.99.
+- Reflexion sua duoc 6 cau ma ReAct sai, khong lam sai them cau nao ReAct da dung.
+- Con 1 cau ca ReAct va Reflexion deu sai.
+- Reflexion co reflection o 8 cau va can trung binh 1.1 attempts/cau, doi lai token/latency estimate cao hon ReAct.
+- `outputs/minimax_random_100/report.md` da co bang Summary, Interpretation va Per-question comparison de xem chi tiet tung qid.
+
+Luu y: `avg_token_estimate` va `avg_latency_ms` trong run nay van la estimate hardcoded trong `agents.py`, chua phai metric thuc tu MiniMax response.
+
+
+## Metadata
+- Dataset: hotpot_random_100.json
+- Mode: llm
+- Records: 200
+- Agents: react, reflexion
+
+## Summary
+| Metric | ReAct | Reflexion | Delta |
+|---|---:|---:|---:|
+| EM | 0.93 | 0.99 | 0.06 |
+| Avg attempts | 1 | 1.1 | 0.1 |
+| Avg token estimate | 385 | 563.3 | 178.3 |
+| Avg latency (ms) | 200 | 323.8 | 123.8 |
+
+## Interpretation
+- Accuracy delta is 0.06: Reflexion improved ReAct on EM.
+- Attempt delta is 0.1: Reflexion used more attempts on average.
+- Token estimate delta is 178.3: positive values mean Reflexion is more expensive per example.
+- Latency delta is 123.8 ms: positive values mean Reflexion is slower per example.
+
+## 6. Step 5 And Golden Dataset Run
+
+Da thay token/latency hardcoded trong `agents.py` bang metric lay tu runtime LLM:
+
+- `src/reflexion_lab/mock_runtime.py`: moi `_chat()` ghi lai `response.usage.total_tokens` neu provider tra ve, va do latency bang `time.perf_counter()`.
+- `src/reflexion_lab/agents.py`: moi attempt reset metric truoc khi goi actor/evaluator/reflector, sau do cong token va latency cua cac LLM calls vao `AttemptTrace`.
+- Khi chay mock hoac provider khong tra usage, code van fallback ve estimate cu de report khong bi rong.
+
+Da chay golden dataset:
+
+```bash
+python run_benchmark.py --dataset data/hotpot_golden.json --out-dir outputs/minimax_golden --reflexion-attempts 3
+python autograde.py --report-path outputs/minimax_golden/report.json
+```
+
+Ket qua:
+
+```json
+{
+  "react": {
+    "count": 20,
+    "em": 1.0,
+    "avg_attempts": 1,
+    "avg_token_estimate": 904.1,
+    "avg_latency_ms": 7704.85
+  },
+  "reflexion": {
+    "count": 20,
+    "em": 1.0,
+    "avg_attempts": 1,
+    "avg_token_estimate": 878.45,
+    "avg_latency_ms": 6416.5
+  },
+  "delta_reflexion_minus_react": {
+    "em_abs": 0.0,
+    "attempts_abs": 0,
+    "tokens_abs": -25.65,
+    "latency_abs": -1288.35
+  }
+}
+```
+
+Autograde:
+
+```text
+Auto-grade total: 82/100
+- Flow Score (Core): 62/80
+  * Schema: 30/30
+  * Experiment: 20/30
+  * Analysis: 12/20
+- Bonus Score: 20/20
+```
+
+Nhan xet:
+
+- Golden dataset co 20 cau, nen report co `meta.num_records = 40` vi moi cau chay qua ca ReAct va Reflexion.
+- Ca ReAct va Reflexion deu dat EM = 1.0, dung 20/20 cau.
+- Reflexion khong can retry tren golden set: `avg_attempts = 1`, `reflection_count = 0` cho tat ca cau.
+- `em_abs = 0.0` vi Reflexion khong cai thien accuracy so voi ReAct tren bo golden nay.
+- `tokens_abs = -25.65` va `latency_abs = -1288.35` cho thay Reflexion thap hon ReAct mot chut trong run nay, nhung do ca hai deu chi chay 1 attempt nen chenh lech chu yeu den tu do dai response va bien thien latency API.
+- Autograde khong full Experiment vi golden set chi co 20 cau, khong dat nguong `num_records >= 100`; full run 100 mau truoc do da dat Experiment 30/30.
+- `outputs/minimax_golden/report.md` da co bang Summary, Interpretation va Per-question comparison cho tung `gold*` qid.
+
+## Metadata
+- Dataset: hotpot_golden.json
+- Mode: llm
+- Records: 40
+- Agents: react, reflexion
+
+## Summary
+| Metric | ReAct | Reflexion | Delta |
+|---|---:|---:|---:|
+| EM | 1.0 | 1.0 | 0.0 |
+| Avg attempts | 1 | 1 | 0 |
+| Avg token estimate | 904.1 | 878.45 | -25.65 |
+| Avg latency (ms) | 7704.85 | 6416.5 | -1288.35 |
